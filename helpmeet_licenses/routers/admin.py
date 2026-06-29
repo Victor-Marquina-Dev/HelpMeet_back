@@ -100,23 +100,51 @@ def reset_devices(license_id: int, db: Session = Depends(get_db), _=Depends(_req
     return OkResponse(ok=True)
 
 
-def _send_gmail(to_email: str, subject: str, html: str) -> None:
-    """Envía email via Gmail SMTP usando contraseña de aplicación."""
-    if not settings.gmail_user or not settings.gmail_app_password:
+ADMIN_NOTIFY_EMAIL = "victormarquina591@gmail.com"
+
+
+def _notify_key_via_resend(customer_email: str, key: str, plan: str, license_id: int) -> None:
+    """Notifica a Victor via Resend (HTTPS) con los datos para reenviar al cliente."""
+    if not settings.resend_api_key:
         return
-    import smtplib
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = f"Helpmeet <{settings.gmail_user}>"
-    msg["To"] = to_email
-    msg.attach(MIMEText(html, "html", "utf-8"))
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.ehlo()
-        server.starttls()
-        server.login(settings.gmail_user, settings.gmail_app_password)
-        server.sendmail(settings.gmail_user, to_email, msg.as_string())
+    try:
+        import resend
+        resend.api_key = settings.resend_api_key
+        resend.Emails.send({
+            "from": "Helpmeet Admin <onboarding@resend.dev>",
+            "to": ADMIN_NOTIFY_EMAIL,
+            "subject": f"Clave lista para enviar — {customer_email}",
+            "html": f"""
+<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:32px;background:#0f1110;color:#e3e2e0">
+  <h2 style="color:#aacfbf;margin-bottom:4px">Clave lista para enviar</h2>
+  <p style="color:#8b928e;margin-bottom:20px">Reenvia este email al cliente o copia la clave manualmente.</p>
+
+  <div style="background:#1a1c1b;border-radius:10px;padding:16px;margin-bottom:16px">
+    <div style="font-size:11px;color:#8b928e">ENVIAR A</div>
+    <div style="font-size:16px;margin-top:4px;color:#e3e2e0">{customer_email}</div>
+  </div>
+
+  <div style="background:#1a1c1b;border-radius:10px;padding:20px;margin-bottom:16px;text-align:center">
+    <div style="font-size:11px;color:#8b928e;margin-bottom:10px">PRODUCT KEY</div>
+    <code style="font-size:22px;letter-spacing:3px;color:#aacfbf;font-weight:bold">{key}</code>
+  </div>
+
+  <div style="background:#1a1c1b;border-radius:8px;padding:14px;font-size:13px;color:#8b928e">
+    Plan: {plan} &nbsp;|&nbsp; Licencia #{license_id}
+  </div>
+
+  <hr style="border:none;border-top:1px solid #2a2c2b;margin:20px 0">
+  <p style="font-size:12px;color:#8b928e">
+    <strong style="color:#aacfbf">Texto para reenviar al cliente:</strong><br><br>
+    Hola, tu Product Key de Helpmeet es:<br>
+    <code style="color:#aacfbf">{key}</code><br><br>
+    Abre Helpmeet e introducela cuando se solicite.<br>
+    Soporte: victor.marquina30@gmail.com
+  </p>
+</div>"""
+        })
+    except Exception:
+        pass
 
 
 @router.post("/licenses/{license_id}/generate-key")
@@ -135,43 +163,21 @@ def generate_key_for_license(license_id: int, db: Session = Depends(get_db), _=D
     db.commit()
 
     customer_email = lic.customer.email
-    email_sent = False
-    email_error = None
+    plan_str = lic.plan
 
-    try:
-        _send_gmail(
-            to_email=customer_email,
-            subject="Tu Product Key de Helpmeet",
-            html=f"""
-<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
-  <h2 style="color:#2d8c5e">Tu Product Key de Helpmeet</h2>
-  <p>Aqui esta tu clave de activacion personal:</p>
-  <div style="background:#f4f4f4;border-radius:8px;padding:20px;text-align:center;margin:24px 0">
-    <code style="font-size:22px;letter-spacing:3px;color:#1a5c3a;font-weight:bold">{new_key}</code>
-  </div>
-  <p><strong>Como activar:</strong></p>
-  <ol>
-    <li>Descarga e instala Helpmeet</li>
-    <li>Abre la aplicacion</li>
-    <li>Introduce tu Product Key cuando se solicite</li>
-    <li>Listo!</li>
-  </ol>
-  <p style="color:#888;font-size:13px">
-    Plan: {lic.plan} · 1 dispositivo<br>
-    Cambiaste de PC? Responde este email y lo resolvemos.<br>
-    Soporte: victor.marquina30@gmail.com
-  </p>
-</div>"""
-        )
-        email_sent = True
-    except Exception as exc:
-        email_error = str(exc)
+    # Notificar via Resend (HTTPS — Railway no bloquea HTTPS, sí bloquea SMTP)
+    import threading
+    threading.Thread(
+        target=_notify_key_via_resend,
+        args=(customer_email, new_key, plan_str, license_id),
+        daemon=True
+    ).start()
 
     return {
         "ok": True,
         "key": new_key,
         "email": customer_email,
-        "plan": lic.plan,
-        "email_sent": email_sent,
-        "email_error": email_error,
+        "plan": plan_str,
+        "email_sent": bool(settings.resend_api_key),
+        "email_error": None if settings.resend_api_key else "RESEND_API_KEY no configurado",
     }

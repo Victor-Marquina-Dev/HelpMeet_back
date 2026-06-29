@@ -1,6 +1,8 @@
-import random
+import hmac
+import secrets
 import string
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 from helpmeet_licenses.config import settings
@@ -8,19 +10,20 @@ from helpmeet_licenses.database import get_db
 from helpmeet_licenses.models import Customer, License, LicenseEvent
 from helpmeet_licenses.schemas import (
     CreateCustomerRequest, CustomerOut,
-    CreateLicenseRequest, LicenseOut, OkResponse,
+    CreateLicenseRequest, CreateLicenseResponse, LicenseOut, OkResponse,
 )
 from helpmeet_licenses.auth import hash_key
 
 router = APIRouter(prefix="/api/admin")
 
 def _require_admin(x_admin_key: str = Header(...)):
-    if x_admin_key != settings.admin_api_key:
+    if not hmac.compare_digest(x_admin_key, settings.admin_api_key):
         raise HTTPException(status_code=403, detail="Forbidden")
 
 def _generate_key() -> str:
+    alphabet = string.ascii_uppercase + string.digits
     def segment(n=4):
-        return "".join(random.choices(string.ascii_uppercase + string.digits, k=n))
+        return "".join(secrets.choice(alphabet) for _ in range(n))
     return f"HM-{segment()}-{segment()}-{segment()}-{segment()}"
 
 def _log_event(db: Session, license_id: int, event_type: str):
@@ -39,7 +42,7 @@ def create_customer(req: CreateCustomerRequest, db: Session = Depends(get_db),
 def list_customers(db: Session = Depends(get_db), _=Depends(_require_admin)):
     return db.query(Customer).all()
 
-@router.post("/licenses")
+@router.post("/licenses", response_model=CreateLicenseResponse)
 def create_license(req: CreateLicenseRequest, db: Session = Depends(get_db),
                    _=Depends(_require_admin)):
     key = _generate_key()
@@ -55,10 +58,10 @@ def create_license(req: CreateLicenseRequest, db: Session = Depends(get_db),
     _log_event(db, lic.id, "created")
     db.commit()
     db.refresh(lic)
-    return {"id": lic.id, "license_key": key, "key_last4": key[-4:], "plan": lic.plan}
+    return CreateLicenseResponse(id=lic.id, license_key=key, key_last4=key[-4:], plan=lic.plan)
 
 @router.get("/licenses", response_model=list[LicenseOut])
-def list_licenses(plan: str = None, status: str = None,
+def list_licenses(plan: Optional[str] = None, status: Optional[str] = None,
                   db: Session = Depends(get_db), _=Depends(_require_admin)):
     q = db.query(License)
     if plan:

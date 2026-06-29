@@ -80,6 +80,13 @@ class ActivationOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CreateLicenseResponse(BaseModel):
+    id: int
+    license_key: str
+    key_last4: str
+    plan: str
+
+
 class LicenseOut(BaseModel):
     id: int
     key_last4: str

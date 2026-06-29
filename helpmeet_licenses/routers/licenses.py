@@ -64,7 +64,10 @@ def activate(req: ActivateRequest, db: Session = Depends(get_db)):
 def validate(req: ValidateRequest, db: Session = Depends(get_db)):
     try:
         payload = verify_activation_token(req.activation_token)
-    except ValueError:
+    except ValueError as e:
+        return ValidateResponse(ok=False, error=str(e))
+
+    if "license_id" not in payload:
         return ValidateResponse(ok=False, error="invalid_token")
 
     lic = db.get(License, payload["license_id"])
@@ -90,7 +93,10 @@ def validate(req: ValidateRequest, db: Session = Depends(get_db)):
 def deactivate(req: DeactivateRequest, db: Session = Depends(get_db)):
     try:
         payload = verify_activation_token(req.activation_token)
-    except ValueError:
+    except ValueError as e:
+        return OkResponse(ok=False, error=str(e))
+
+    if "license_id" not in payload:
         return OkResponse(ok=False, error="invalid_token")
 
     device_hash = hash_key(req.device_id)
@@ -106,4 +112,6 @@ def deactivate(req: DeactivateRequest, db: Session = Depends(get_db)):
         activation.deactivated_at = datetime.now(tz=timezone.utc)
         _log_event(db, payload["license_id"], "deactivated", {"device_id_hash": device_hash})
         db.commit()
-    return OkResponse(ok=True)
+        return OkResponse(ok=True)
+    else:
+        return OkResponse(ok=False, error="activation_not_found")

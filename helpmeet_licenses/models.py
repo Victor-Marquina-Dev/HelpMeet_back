@@ -1,7 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from helpmeet_licenses.database import Base
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
 
 
 class Customer(Base):
@@ -10,7 +14,7 @@ class Customer(Base):
     email = Column(String(255), unique=True, nullable=False)
     name = Column(String(255))
     gumroad_id = Column(String(255))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
     licenses = relationship("License", back_populates="customer")
 
 
@@ -23,7 +27,7 @@ class License(Base):
     plan = Column(String(50), default="personal")
     status = Column(String(30), default="active")
     updates_until = Column(Date)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
     revoked_at = Column(DateTime)
     customer = relationship("Customer", back_populates="licenses")
     activations = relationship("Activation", back_populates="license")
@@ -39,8 +43,8 @@ class Activation(Base):
     os = Column(String(100))
     app_version = Column(String(30))
     status = Column(String(30), default="active")
-    first_activated_at = Column(DateTime, default=datetime.utcnow)
-    last_seen_at = Column(DateTime, default=datetime.utcnow)
+    first_activated_at = Column(DateTime, default=_utcnow)
+    last_seen_at = Column(DateTime, default=_utcnow)
     deactivated_at = Column(DateTime)
     license = relationship("License", back_populates="activations")
 
@@ -51,5 +55,5 @@ class LicenseEvent(Base):
     license_id = Column(Integer, ForeignKey("licenses.id"), nullable=False)
     event_type = Column(String(50), nullable=False)
     event_metadata = Column("metadata", JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
     license = relationship("License", back_populates="events")

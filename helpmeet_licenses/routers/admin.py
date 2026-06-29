@@ -100,54 +100,24 @@ def reset_devices(license_id: int, db: Session = Depends(get_db), _=Depends(_req
     return OkResponse(ok=True)
 
 
-@router.post("/licenses/{license_id}/send-key", response_model=OkResponse)
-def send_key_email(license_id: int, db: Session = Depends(get_db), _=Depends(_require_admin)):
-    """Genera una nueva key para esta licencia y la envía al email del cliente."""
+@router.post("/licenses/{license_id}/generate-key")
+def generate_key_for_license(license_id: int, db: Session = Depends(get_db), _=Depends(_require_admin)):
+    """Genera una nueva key para la licencia y la devuelve. El panel abre Gmail."""
     lic = db.get(License, license_id)
     if not lic:
         raise HTTPException(status_code=404, detail=LICENSE_NOT_FOUND)
     if not lic.customer or not lic.customer.email:
         raise HTTPException(status_code=400, detail="No customer email")
 
-    # Generar nueva key y actualizar la licencia
     new_key = generate_license_key()
     lic.key_hash = hash_key(new_key)
     lic.key_last4 = new_key[-4:]
-    _log_event(db, license_id, "key_resent")
+    _log_event(db, license_id, "key_generated")
     db.commit()
 
-    # Enviar notificacion a Victor (sin dominio verificado solo puede enviar a su propio email)
-    if settings.resend_api_key:
-        try:
-            import resend
-            resend.api_key = settings.resend_api_key
-            customer_email = lic.customer.email
-            resend.Emails.send({
-                "from": "Helpmeet Admin <onboarding@resend.dev>",
-                "to": "victormarquina591@gmail.com",
-                "subject": f"Enviar key a {customer_email}",
-                "html": f"""
-<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:32px;background:#0f1110;color:#e3e2e0">
-  <h2 style="color:#aacfbf">Reenviar key al cliente</h2>
-  <p style="color:#8b928e">Copia la key y enviasela a este cliente:</p>
-
-  <div style="background:#1a1c1b;border-radius:10px;padding:16px;margin:16px 0">
-    <div style="font-size:11px;color:#8b928e">CLIENTE</div>
-    <div style="font-size:16px;margin-top:4px">{customer_email}</div>
-  </div>
-
-  <div style="background:#1a1c1b;border-radius:10px;padding:16px;margin:16px 0;text-align:center">
-    <div style="font-size:11px;color:#8b928e;margin-bottom:8px">PRODUCT KEY</div>
-    <code style="font-size:22px;letter-spacing:3px;color:#aacfbf;font-weight:bold">{new_key}</code>
-  </div>
-
-  <p style="color:#8b928e;font-size:13px">
-    Copia esta key y enviasela al cliente por email.<br>
-    Plan: {lic.plan} · ID licencia: #{license_id}
-  </p>
-</div>"""
-            })
-        except Exception as exc:
-            return OkResponse(ok=False, error=f"Email error: {exc}")
-
-    return OkResponse(ok=True)
+    return {
+        "ok": True,
+        "key": new_key,
+        "email": lic.customer.email,
+        "plan": lic.plan,
+    }

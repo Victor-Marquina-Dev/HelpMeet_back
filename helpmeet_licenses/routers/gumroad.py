@@ -18,15 +18,17 @@ En producción, se puede añadir validación de IP de Gumroad como capa extra.
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+import hmac
+
+from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from helpmeet_licenses.auth import hash_key
+from helpmeet_licenses.config import settings
 from helpmeet_licenses.database import get_db
 from helpmeet_licenses.keys import generate_license_key
 from helpmeet_licenses.models import Customer, License, LicenseEvent
-from helpmeet_licenses.routers.admin import _require_admin
 from helpmeet_licenses.schemas import OkResponse
 
 router = APIRouter(prefix="/api/gumroad", tags=["gumroad"])
@@ -38,10 +40,16 @@ PLAN_MAP = {
 }
 
 
+def _require_token(token: str = Query(..., alias="token")):
+    """Gumroad no puede enviar headers — validamos con token en query string."""
+    if not hmac.compare_digest(token, settings.admin_api_key):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
 class GumroadWebhookPayload(BaseModel):
     email: EmailStr
     sale_id: str
-    product_id: str
+    product_id: str = "helpmeet_personal"
     refunded: bool = False
     dispute: bool = False
 
@@ -64,7 +72,7 @@ def _find_purchase_event(db: Session, sale_id: str):
 def gumroad_webhook(
     payload: GumroadWebhookPayload,
     db: Session = Depends(get_db),
-    _: None = Depends(_require_admin),
+    _: None = Depends(_require_token),
 ):
     existing_event = _find_purchase_event(db, payload.sale_id)
 

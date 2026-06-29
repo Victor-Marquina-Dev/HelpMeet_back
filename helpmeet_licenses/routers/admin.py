@@ -100,9 +100,26 @@ def reset_devices(license_id: int, db: Session = Depends(get_db), _=Depends(_req
     return OkResponse(ok=True)
 
 
+def _send_gmail(to_email: str, subject: str, html: str) -> None:
+    """Envía email via Gmail SMTP usando contraseña de aplicación."""
+    if not settings.gmail_user or not settings.gmail_app_password:
+        return
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"Helpmeet <{settings.gmail_user}>"
+    msg["To"] = to_email
+    msg.attach(MIMEText(html, "html", "utf-8"))
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(settings.gmail_user, settings.gmail_app_password)
+        server.sendmail(settings.gmail_user, to_email, msg.as_string())
+
+
 @router.post("/licenses/{license_id}/generate-key")
 def generate_key_for_license(license_id: int, db: Session = Depends(get_db), _=Depends(_require_admin)):
-    """Genera una nueva key para la licencia y la devuelve. El panel abre Gmail."""
+    """Genera nueva key, la envía por Gmail y la devuelve al panel."""
     lic = db.get(License, license_id)
     if not lic:
         raise HTTPException(status_code=404, detail=LICENSE_NOT_FOUND)
@@ -115,9 +132,44 @@ def generate_key_for_license(license_id: int, db: Session = Depends(get_db), _=D
     _log_event(db, license_id, "key_generated")
     db.commit()
 
+    customer_email = lic.customer.email
+    email_sent = False
+    email_error = None
+
+    try:
+        _send_gmail(
+            to_email=customer_email,
+            subject="Tu Product Key de Helpmeet",
+            html=f"""
+<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+  <h2 style="color:#2d8c5e">Tu Product Key de Helpmeet</h2>
+  <p>Aqui esta tu clave de activacion personal:</p>
+  <div style="background:#f4f4f4;border-radius:8px;padding:20px;text-align:center;margin:24px 0">
+    <code style="font-size:22px;letter-spacing:3px;color:#1a5c3a;font-weight:bold">{new_key}</code>
+  </div>
+  <p><strong>Como activar:</strong></p>
+  <ol>
+    <li>Descarga e instala Helpmeet</li>
+    <li>Abre la aplicacion</li>
+    <li>Introduce tu Product Key cuando se solicite</li>
+    <li>Listo!</li>
+  </ol>
+  <p style="color:#888;font-size:13px">
+    Plan: {lic.plan} · 1 dispositivo<br>
+    Cambiaste de PC? Responde este email y lo resolvemos.<br>
+    Soporte: victor.marquina30@gmail.com
+  </p>
+</div>"""
+        )
+        email_sent = True
+    except Exception as exc:
+        email_error = str(exc)
+
     return {
         "ok": True,
         "key": new_key,
-        "email": lic.customer.email,
+        "email": customer_email,
         "plan": lic.plan,
+        "email_sent": email_sent,
+        "email_error": email_error,
     }

@@ -31,7 +31,7 @@ def test_gumroad_purchase_idempotent(client, db, setup_db):
     assert count == 1
 
 
-def test_gumroad_refund_revokes_license(client, setup_db):
+def test_gumroad_refund_revokes_license(client, db, setup_db):
     """Refund event marks license as refunded."""
     # Purchase first
     r = client.post("/api/gumroad/webhook", headers=HEADERS, json={
@@ -49,6 +49,12 @@ def test_gumroad_refund_revokes_license(client, setup_db):
         "refunded": True,
     })
     assert r2.json()["ok"]
+
+    # Verify license status actually changed to "refunded"
+    db.expire_all()
+    customer = db.query(Customer).filter(Customer.email == "buyer3@gumroad.com").first()
+    lic = db.query(License).filter(License.customer_id == customer.id).first()
+    assert lic.status == "refunded"
 
 
 def test_gumroad_no_admin_key(client, setup_db):

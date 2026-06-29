@@ -17,5 +17,6 @@ app.include_router(admin.router)
 app.include_router(gumroad.router)
 
 @app.get("/health")
+@app.get("/salud")
 def health():
     return {"ok": True}

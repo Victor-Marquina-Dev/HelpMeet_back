@@ -19,9 +19,9 @@ En producción, se puede añadir validación de IP de Gumroad como capa extra.
 from datetime import datetime, timezone
 
 import hmac
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException
-from pydantic import BaseModel, EmailStr
+from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from helpmeet_licenses.auth import hash_key
@@ -41,22 +41,11 @@ PLAN_MAP = {
 
 
 def _require_token(token: str = Query(..., alias="token")):
-    """Gumroad no puede enviar headers — validamos con token en query string."""
     if not hmac.compare_digest(token, settings.admin_api_key):
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
-class GumroadWebhookPayload(BaseModel):
-    email: EmailStr
-    sale_id: str
-    product_id: str = "helpmeet_personal"
-    refunded: bool = False
-    dispute: bool = False
-
-
 def _find_purchase_event(db: Session, sale_id: str):
-    """Find a gumroad_purchase event by sale_id. Uses Python-level filtering
-    for SQLite compatibility (avoids PostgreSQL JSON operators)."""
     events = (
         db.query(LicenseEvent)
         .filter(LicenseEvent.event_type == "gumroad_purchase")
@@ -69,14 +58,32 @@ def _find_purchase_event(db: Session, sale_id: str):
 
 
 @router.post("/webhook", response_model=OkResponse)
-def gumroad_webhook(
-    payload: GumroadWebhookPayload,
+async def gumroad_webhook(
+    request: Request,
     db: Session = Depends(get_db),
     _: None = Depends(_require_token),
 ):
-    existing_event = _find_purchase_event(db, payload.sale_id)
+    # Gumroad envía form-urlencoded; también aceptamos JSON para pruebas
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        import json as _json
+        data = await request.json()
+    else:
+        form = await request.form()
+        data = dict(form)
 
-    if payload.refunded or payload.dispute:
+    email = data.get("email", "")
+    sale_id = data.get("sale_id", "") or data.get("order_number", "")
+    product_id = data.get("product_id") or data.get("permalink") or "helpmeet_personal"
+    refunded = str(data.get("refunded", "false")).lower() in ("true", "1")
+    dispute = str(data.get("disputed", data.get("dispute", "false"))).lower() in ("true", "1")
+
+    if not email or not sale_id:
+        return OkResponse(ok=False, error="missing_fields")
+
+    existing_event = _find_purchase_event(db, sale_id)
+
+    if refunded or dispute:
         # Handle refund/dispute: revoke the license
         if existing_event:
             lic = db.get(License, existing_event.license_id)
@@ -87,28 +94,24 @@ def gumroad_webhook(
                     LicenseEvent(
                         license_id=lic.id,
                         event_type="refunded",
-                        event_metadata={
-                            "sale_id": payload.sale_id,
-                            "reason": "gumroad_refund",
-                        },
+                        event_metadata={"sale_id": sale_id, "reason": "gumroad_refund"},
                     )
                 )
                 db.commit()
         return OkResponse(ok=True)
 
     if existing_event:
-        # Already processed this purchase — idempotent
         return OkResponse(ok=True)
 
     # New purchase: find or create customer
-    customer = db.query(Customer).filter(Customer.email == payload.email).first()
+    customer = db.query(Customer).filter(Customer.email == email).first()
     if not customer:
-        customer = Customer(email=payload.email)
+        customer = Customer(email=email)
         db.add(customer)
         db.flush()
 
     # Determine plan
-    plan = PLAN_MAP.get(payload.product_id, "personal")
+    plan = PLAN_MAP.get(product_id, "personal")
 
     # Create license
     key = generate_license_key()
@@ -127,11 +130,7 @@ def gumroad_webhook(
         LicenseEvent(
             license_id=lic.id,
             event_type="gumroad_purchase",
-            event_metadata={
-                "sale_id": payload.sale_id,
-                "product_id": payload.product_id,
-                "email": payload.email,
-            },
+            event_metadata={"sale_id": sale_id, "product_id": product_id, "email": email},
         )
     )
     db.commit()

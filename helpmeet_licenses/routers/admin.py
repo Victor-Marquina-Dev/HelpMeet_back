@@ -15,6 +15,9 @@ from helpmeet_licenses.auth import hash_key
 
 router = APIRouter(prefix="/api/admin")
 
+# Error messages
+LICENSE_NOT_FOUND = "License not found"
+
 def _require_admin(x_admin_key: str = Header(...)):
     if not hmac.compare_digest(x_admin_key, settings.admin_api_key):
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -68,14 +71,14 @@ def list_licenses(plan: Optional[str] = None, status: Optional[str] = None,
 def get_license(license_id: int, db: Session = Depends(get_db), _=Depends(_require_admin)):
     lic = db.get(License, license_id)
     if not lic:
-        raise HTTPException(status_code=404, detail="License not found")
+        raise HTTPException(status_code=404, detail=LICENSE_NOT_FOUND)
     return lic
 
 @router.post("/licenses/{license_id}/revoke", response_model=OkResponse)
 def revoke_license(license_id: int, db: Session = Depends(get_db), _=Depends(_require_admin)):
     lic = db.get(License, license_id)
     if not lic:
-        raise HTTPException(status_code=404, detail="License not found")
+        raise HTTPException(status_code=404, detail=LICENSE_NOT_FOUND)
     lic.status = "revoked"
     lic.revoked_at = datetime.now(tz=timezone.utc)
     _log_event(db, lic.id, "revoked")
@@ -87,7 +90,7 @@ def revoke_license(license_id: int, db: Session = Depends(get_db), _=Depends(_re
 def reset_devices(license_id: int, db: Session = Depends(get_db), _=Depends(_require_admin)):
     lic = db.get(License, license_id)
     if not lic:
-        raise HTTPException(status_code=404, detail="Licencia no encontrada")
+        raise HTTPException(status_code=404, detail=LICENSE_NOT_FOUND)
     db.query(Activation).filter(
         Activation.license_id == license_id,
         Activation.status == "active"

@@ -94,6 +94,7 @@ class LicenseOut(BaseModel):
     plan: str
     status: str
     updates_until: Optional[date]
+    max_devices: int = 1
     created_at: datetime
     customer: CustomerOut
     activations: list[ActivationOut] = []

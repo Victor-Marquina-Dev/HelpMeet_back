@@ -36,3 +36,12 @@ def test_create_customer_and_license(setup_db):
 def test_list_licenses(setup_db):
     result = runner.invoke(cli_app, ["list-licenses"])
     assert result.exit_code == 0
+
+def test_revoke_license(setup_db):
+    # Create customer and license first
+    runner.invoke(cli_app, ["create-customer", "--email", "revoke@test.com"])
+    runner.invoke(cli_app, ["create-license", "--customer-id", "1", "--plan", "personal"])
+
+    result = runner.invoke(cli_app, ["revoke-license", "--license-id", "1"])
+    assert result.exit_code == 0, f"Failed: {result.output}"
+    assert "revocada" in result.output

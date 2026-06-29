@@ -1,11 +1,11 @@
 import typer
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from helpmeet_licenses.database import SessionLocal
-from helpmeet_licenses.models import Customer, License
+from helpmeet_licenses.keys import generate_license_key
+from helpmeet_licenses.models import Customer, License, LicenseEvent
 from helpmeet_licenses.auth import hash_key
-from helpmeet_licenses.routers.admin import _generate_key
 
 app = typer.Typer(help="Gestión de licencias Helpmeet")
 
@@ -35,14 +35,22 @@ def create_license(
     updates_until: Optional[str] = typer.Option(None, help="Fecha YYYY-MM-DD"),
 ):
     """Crea una licencia y muestra la product key (solo una vez)."""
+    if updates_until:
+        try:
+            until = date.fromisoformat(updates_until)
+        except ValueError:
+            typer.echo(f"Fecha invalida: '{updates_until}'. Usa formato YYYY-MM-DD.", err=True)
+            raise typer.Exit(1)
+    else:
+        until = None
+
     db = _db()
     try:
         customer = db.get(Customer, customer_id)
         if not customer:
             typer.echo(f"Cliente {customer_id} no encontrado", err=True)
             raise typer.Exit(1)
-        key = _generate_key()
-        until = date.fromisoformat(updates_until) if updates_until else None
+        key = generate_license_key()
         lic = License(
             customer_id=customer_id,
             key_hash=hash_key(key),
@@ -51,6 +59,8 @@ def create_license(
             updates_until=until,
         )
         db.add(lic)
+        db.flush()  # populates lic.id
+        db.add(LicenseEvent(license_id=lic.id, event_type="created", event_metadata={}))
         db.commit()
         db.refresh(lic)
         typer.echo(f"\n{'='*50}")
@@ -67,7 +77,7 @@ def list_licenses(status: Optional[str] = typer.Option(None)):
     """Lista todas las licencias."""
     db = _db()
     try:
-        q = db.query(License)
+        q = db.query(License).options(joinedload(License.customer))
         if status:
             q = q.filter(License.status == status)
         licenses = q.all()
@@ -85,7 +95,6 @@ def list_licenses(status: Optional[str] = typer.Option(None)):
 @app.command("revoke-license")
 def revoke_license(license_id: int = typer.Option(...)):
     """Revoca una licencia."""
-    from datetime import datetime, timezone
     db = _db()
     try:
         lic = db.get(License, license_id)
@@ -94,6 +103,7 @@ def revoke_license(license_id: int = typer.Option(...)):
             raise typer.Exit(1)
         lic.status = "revoked"
         lic.revoked_at = datetime.now(tz=timezone.utc)
+        db.add(LicenseEvent(license_id=lic.id, event_type="revoked", event_metadata={}))
         db.commit()
         typer.echo(f"Licencia {license_id} revocada.")
     finally:

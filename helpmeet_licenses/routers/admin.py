@@ -1,12 +1,11 @@
 import hmac
-import secrets
-import string
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 from helpmeet_licenses.config import settings
 from helpmeet_licenses.database import get_db
+from helpmeet_licenses.keys import generate_license_key
 from helpmeet_licenses.models import Customer, License, LicenseEvent
 from helpmeet_licenses.schemas import (
     CreateCustomerRequest, CustomerOut,
@@ -19,12 +18,6 @@ router = APIRouter(prefix="/api/admin")
 def _require_admin(x_admin_key: str = Header(...)):
     if not hmac.compare_digest(x_admin_key, settings.admin_api_key):
         raise HTTPException(status_code=403, detail="Forbidden")
-
-def _generate_key() -> str:
-    alphabet = string.ascii_uppercase + string.digits
-    def segment(n=4):
-        return "".join(secrets.choice(alphabet) for _ in range(n))
-    return f"HM-{segment()}-{segment()}-{segment()}-{segment()}"
 
 def _log_event(db: Session, license_id: int, event_type: str):
     db.add(LicenseEvent(license_id=license_id, event_type=event_type, event_metadata={}))
@@ -45,7 +38,7 @@ def list_customers(db: Session = Depends(get_db), _=Depends(_require_admin)):
 @router.post("/licenses", response_model=CreateLicenseResponse)
 def create_license(req: CreateLicenseRequest, db: Session = Depends(get_db),
                    _=Depends(_require_admin)):
-    key = _generate_key()
+    key = generate_license_key()
     lic = License(
         customer_id=req.customer_id,
         key_hash=hash_key(key),

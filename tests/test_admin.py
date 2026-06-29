@@ -49,3 +49,39 @@ def test_revoke_license(client, a_license):
     assert resp.json()["ok"] is True
     detail = client.get(f"/api/admin/licenses/{lic_id}", headers=HEADERS).json()
     assert detail["status"] == "revoked"
+
+
+def test_reset_devices(client, a_license):
+    """Reset devices clears all active activations."""
+    lic_id = a_license["license"].id
+    # First activate
+    r = client.post("/api/license/activate", json={
+        "license_key": a_license["key"],
+        "device_id": "dev-reset-test",
+        "device_name": "Test", "os": "Windows", "app_version": "1.0"
+    })
+    assert r.json()["ok"]
+
+    # Reset devices
+    r2 = client.post(f"/api/admin/licenses/{lic_id}/reset-devices", headers=HEADERS)
+    assert r2.json()["ok"]
+
+
+def test_device_limit(client, a_license):
+    """Activating a second device when max_devices=1 should fail."""
+    # Activate first device
+    r1 = client.post("/api/license/activate", json={
+        "license_key": a_license["key"],
+        "device_id": "dev-limit-1",
+        "device_name": "Device1", "os": "Windows", "app_version": "1.0"
+    })
+    assert r1.json()["ok"]
+
+    # Try second device — should fail
+    r2 = client.post("/api/license/activate", json={
+        "license_key": a_license["key"],
+        "device_id": "dev-limit-2",
+        "device_name": "Device2", "os": "Windows", "app_version": "1.0"
+    })
+    assert not r2.json()["ok"]
+    assert r2.json()["error"] == "device_limit_reached"

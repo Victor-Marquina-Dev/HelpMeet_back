@@ -34,6 +34,7 @@ class CreateLicenseRequest(BaseModel):
     customer_id: int
     plan: str = "personal"
     updates_until: Optional[date] = None
+    max_devices: int = 1
 
 
 # ── Responses ─────────────────────────────────────────────

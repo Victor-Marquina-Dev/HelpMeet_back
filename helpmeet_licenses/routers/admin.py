@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from helpmeet_licenses.config import settings
 from helpmeet_licenses.database import get_db
 from helpmeet_licenses.keys import generate_license_key
-from helpmeet_licenses.models import Customer, License, LicenseEvent
+from helpmeet_licenses.models import Customer, License, Activation, LicenseEvent
 from helpmeet_licenses.schemas import (
     CreateCustomerRequest, CustomerOut,
     CreateLicenseRequest, CreateLicenseResponse, LicenseOut, OkResponse,
@@ -45,6 +45,7 @@ def create_license(req: CreateLicenseRequest, db: Session = Depends(get_db),
         key_last4=key[-4:],
         plan=req.plan,
         updates_until=req.updates_until,
+        max_devices=req.max_devices,
     )
     db.add(lic)
     db.flush()
@@ -78,5 +79,19 @@ def revoke_license(license_id: int, db: Session = Depends(get_db), _=Depends(_re
     lic.status = "revoked"
     lic.revoked_at = datetime.now(tz=timezone.utc)
     _log_event(db, lic.id, "revoked")
+    db.commit()
+    return OkResponse(ok=True)
+
+
+@router.post("/licenses/{license_id}/reset-devices", response_model=OkResponse)
+def reset_devices(license_id: int, db: Session = Depends(get_db), _=Depends(_require_admin)):
+    lic = db.get(License, license_id)
+    if not lic:
+        raise HTTPException(status_code=404, detail="Licencia no encontrada")
+    db.query(Activation).filter(
+        Activation.license_id == license_id,
+        Activation.status == "active"
+    ).update({"status": "deactivated"})
+    _log_event(db, license_id, "devices_reset")
     db.commit()
     return OkResponse(ok=True)

@@ -27,6 +27,7 @@ class License(Base):
     plan = Column(String(50), default="personal")
     status = Column(String(30), default="active")
     updates_until = Column(Date)
+    max_devices = Column(Integer, default=1, nullable=False, server_default="1")
     created_at = Column(DateTime, default=_utcnow)
     revoked_at = Column(DateTime)
     customer = relationship("Customer", back_populates="licenses")

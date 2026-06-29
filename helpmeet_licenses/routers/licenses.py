@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from helpmeet_licenses.database import get_db
 from helpmeet_licenses.models import License, Activation, LicenseEvent
@@ -24,6 +25,22 @@ def activate(req: ActivateRequest, db: Session = Depends(get_db)):
         return ActivateResponse(ok=False, error="license_revoked")
 
     device_hash = hash_key(req.device_id)
+
+    # Check if this device already has an active activation (re-activation is allowed)
+    existing = db.query(Activation).filter(
+        Activation.license_id == lic.id,
+        Activation.device_id_hash == device_hash,
+        Activation.status == "active",
+    ).first()
+    if not existing:
+        # New device — check device limit
+        active_count = db.query(func.count(Activation.id)).filter(
+            Activation.license_id == lic.id,
+            Activation.status == "active"
+        ).scalar()
+        if active_count >= lic.max_devices:
+            return ActivateResponse(ok=False, error="device_limit_reached")
+
     activation = db.query(Activation).filter(
         Activation.license_id == lic.id,
         Activation.device_id_hash == device_hash,

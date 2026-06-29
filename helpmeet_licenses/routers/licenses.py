@@ -77,10 +77,11 @@ def validate(req: ValidateRequest, db: Session = Depends(get_db)):
         Activation.device_id_hash == device_hash,
         Activation.status == "active",
     ).first()
-    if activation:
-        activation.last_seen_at = datetime.now(tz=timezone.utc)
-        if req.app_version:
-            activation.app_version = req.app_version
+    if not activation:
+        return ValidateResponse(ok=False, error="device_not_found")
+    activation.last_seen_at = datetime.now(tz=timezone.utc)
+    if req.app_version:
+        activation.app_version = req.app_version
     _log_event(db, lic.id, "validated", {"device_id_hash": device_hash})
     db.commit()
     return ValidateResponse(ok=True, status="active", plan=lic.plan)
@@ -93,6 +94,8 @@ def deactivate(req: DeactivateRequest, db: Session = Depends(get_db)):
         return OkResponse(ok=False, error="invalid_token")
 
     device_hash = hash_key(req.device_id)
+    if device_hash != payload.get("device_id_hash"):
+        return OkResponse(ok=False, error="device_mismatch")
     activation = db.query(Activation).filter(
         Activation.license_id == payload["license_id"],
         Activation.device_id_hash == device_hash,

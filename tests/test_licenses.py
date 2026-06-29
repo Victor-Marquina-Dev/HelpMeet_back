@@ -61,3 +61,30 @@ def test_deactivate(client, a_license):
         "device_id": "device-abc",
     })
     assert resp.json()["ok"] is True
+
+def test_validate_unknown_device(client, a_license):
+    """Validate should fail if device was never activated."""
+    activate = client.post("/api/license/activate", json={
+        "license_key": a_license["key"],
+        "device_id": "device-abc",
+    }).json()
+    # Try to validate with a different device_id
+    resp = client.post("/api/license/validate", json={
+        "activation_token": activate["activation_token"],
+        "device_id": "different-device",
+    })
+    assert resp.json()["ok"] is False
+    assert resp.json()["error"] == "device_not_found"
+
+def test_deactivate_wrong_device(client, a_license):
+    """Deactivate should fail if device_id doesn't match the JWT."""
+    token = client.post("/api/license/activate", json={
+        "license_key": a_license["key"],
+        "device_id": "device-abc",
+    }).json()["activation_token"]
+    resp = client.post("/api/license/deactivate", json={
+        "activation_token": token,
+        "device_id": "wrong-device",
+    })
+    assert resp.json()["ok"] is False
+    assert resp.json()["error"] == "device_mismatch"

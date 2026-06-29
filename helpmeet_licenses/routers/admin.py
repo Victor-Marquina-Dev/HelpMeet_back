@@ -98,3 +98,55 @@ def reset_devices(license_id: int, db: Session = Depends(get_db), _=Depends(_req
     _log_event(db, license_id, "devices_reset")
     db.commit()
     return OkResponse(ok=True)
+
+
+@router.post("/licenses/{license_id}/send-key", response_model=OkResponse)
+def send_key_email(license_id: int, db: Session = Depends(get_db), _=Depends(_require_admin)):
+    """Genera una nueva key para esta licencia y la envía al email del cliente."""
+    lic = db.get(License, license_id)
+    if not lic:
+        raise HTTPException(status_code=404, detail=LICENSE_NOT_FOUND)
+    if not lic.customer or not lic.customer.email:
+        raise HTTPException(status_code=400, detail="No customer email")
+
+    # Generar nueva key y actualizar la licencia
+    new_key = generate_license_key()
+    lic.key_hash = hash_key(new_key)
+    lic.key_last4 = new_key[-4:]
+    _log_event(db, license_id, "key_resent")
+    db.commit()
+
+    # Enviar por email
+    if settings.resend_api_key:
+        try:
+            import resend
+            resend.api_key = settings.resend_api_key
+            resend.Emails.send({
+                "from": "Helpmeet <onboarding@resend.dev>",
+                "to": lic.customer.email,
+                "subject": "Tu Product Key de Helpmeet",
+                "html": f"""
+<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+  <h2 style="color:#aacfbf">Tu Product Key de Helpmeet</h2>
+  <p>Aqui esta tu clave de activacion personal:</p>
+  <div style="background:#1e201f;border-radius:8px;padding:20px;text-align:center;margin:24px 0">
+    <code style="font-size:20px;letter-spacing:2px;color:#aacfbf;font-weight:bold">{new_key}</code>
+  </div>
+  <p><strong>Como activar:</strong></p>
+  <ol>
+    <li>Descarga e instala Helpmeet</li>
+    <li>Abre la aplicacion</li>
+    <li>Introduce tu Product Key cuando se solicite</li>
+    <li>Listo!</li>
+  </ol>
+  <p style="color:#888;font-size:13px">
+    Plan: {lic.plan} · 1 dispositivo<br>
+    Cambiaste de PC? Responde este email y lo resolvemos.<br>
+    Soporte: victor.marquina30@gmail.com
+  </p>
+</div>"""
+            })
+        except Exception as exc:
+            return OkResponse(ok=False, error=f"Email error: {exc}")
+
+    return OkResponse(ok=True)

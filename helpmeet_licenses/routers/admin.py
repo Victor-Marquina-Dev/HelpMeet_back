@@ -181,3 +181,12 @@ def generate_key_for_license(license_id: int, db: Session = Depends(get_db), _=D
         "email_sent": bool(settings.resend_api_key),
         "email_error": None if settings.resend_api_key else "RESEND_API_KEY no configurado",
     }
+
+
+@router.post("/reset-db", response_model=OkResponse)
+def reset_db(db: Session = Depends(get_db), _=Depends(_require_admin)):
+    """Borra todos los datos (clientes, licencias, activaciones, eventos). Útil antes del lanzamiento."""
+    from sqlalchemy import text
+    db.execute(text("TRUNCATE TABLE license_events, activations, licenses, customers RESTART IDENTITY CASCADE"))
+    db.commit()
+    return OkResponse(ok=True)

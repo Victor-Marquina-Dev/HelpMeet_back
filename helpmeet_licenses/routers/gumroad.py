@@ -32,6 +32,46 @@ from helpmeet_licenses.models import Customer, License, LicenseEvent
 from helpmeet_licenses.schemas import OkResponse
 
 
+ADMIN_EMAIL = "victormarquina591@gmail.com"
+
+
+def _notify_admin(buyer_email: str, license_key: str, plan: str) -> None:
+    """Notifica a Victor cuando hay una nueva venta."""
+    if not settings.resend_api_key:
+        return
+    try:
+        import resend
+        resend.api_key = settings.resend_api_key
+        resend.Emails.send({
+            "from": "Helpmeet Admin <onboarding@resend.dev>",
+            "to": ADMIN_EMAIL,
+            "subject": f"Nueva venta Helpmeet — {buyer_email}",
+            "html": f"""
+<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0f1110;color:#e3e2e0">
+  <h2 style="color:#aacfbf;margin-bottom:4px">Nueva venta</h2>
+  <p style="color:#8b928e;margin-bottom:24px">Helpmeet — Plan {plan}</p>
+
+  <div style="background:#1a1c1b;border-radius:10px;padding:20px;margin-bottom:20px">
+    <div style="font-size:12px;color:#8b928e;margin-bottom:4px">COMPRADOR</div>
+    <div style="font-size:16px;color:#e3e2e0">{buyer_email}</div>
+  </div>
+
+  <div style="background:#1a1c1b;border-radius:10px;padding:20px;margin-bottom:24px">
+    <div style="font-size:12px;color:#8b928e;margin-bottom:8px">PRODUCT KEY GENERADA</div>
+    <code style="font-size:18px;letter-spacing:2px;color:#aacfbf;font-weight:bold">{license_key}</code>
+  </div>
+
+  <p style="color:#8b928e;font-size:13px">
+    Abre el panel admin y haz clic en <strong style="color:#aacfbf">Enviar key</strong>
+    para que el cliente la reciba por email.
+  </p>
+</div>
+"""
+        })
+    except Exception:
+        pass
+
+
 def _send_license_email(to_email: str, license_key: str, plan: str) -> None:
     """Envía la Product Key al comprador via Resend."""
     if not settings.resend_api_key:
@@ -172,7 +212,7 @@ async def gumroad_webhook(
     )
     db.commit()
 
-    # Enviar la key al comprador por email
-    _send_license_email(email, key, plan)
+    # Notificar a Victor (admin) con los detalles de la venta
+    _notify_admin(email, key, plan)
 
     return OkResponse(ok=True)

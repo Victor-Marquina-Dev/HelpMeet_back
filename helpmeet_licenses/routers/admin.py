@@ -116,33 +116,34 @@ def send_key_email(license_id: int, db: Session = Depends(get_db), _=Depends(_re
     _log_event(db, license_id, "key_resent")
     db.commit()
 
-    # Enviar por email
+    # Enviar notificacion a Victor (sin dominio verificado solo puede enviar a su propio email)
     if settings.resend_api_key:
         try:
             import resend
             resend.api_key = settings.resend_api_key
+            customer_email = lic.customer.email
             resend.Emails.send({
-                "from": "Helpmeet <onboarding@resend.dev>",
-                "to": lic.customer.email,
-                "subject": "Tu Product Key de Helpmeet",
+                "from": "Helpmeet Admin <onboarding@resend.dev>",
+                "to": "victormarquina591@gmail.com",
+                "subject": f"Enviar key a {customer_email}",
                 "html": f"""
-<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
-  <h2 style="color:#aacfbf">Tu Product Key de Helpmeet</h2>
-  <p>Aqui esta tu clave de activacion personal:</p>
-  <div style="background:#1e201f;border-radius:8px;padding:20px;text-align:center;margin:24px 0">
-    <code style="font-size:20px;letter-spacing:2px;color:#aacfbf;font-weight:bold">{new_key}</code>
+<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:32px;background:#0f1110;color:#e3e2e0">
+  <h2 style="color:#aacfbf">Reenviar key al cliente</h2>
+  <p style="color:#8b928e">Copia la key y enviasela a este cliente:</p>
+
+  <div style="background:#1a1c1b;border-radius:10px;padding:16px;margin:16px 0">
+    <div style="font-size:11px;color:#8b928e">CLIENTE</div>
+    <div style="font-size:16px;margin-top:4px">{customer_email}</div>
   </div>
-  <p><strong>Como activar:</strong></p>
-  <ol>
-    <li>Descarga e instala Helpmeet</li>
-    <li>Abre la aplicacion</li>
-    <li>Introduce tu Product Key cuando se solicite</li>
-    <li>Listo!</li>
-  </ol>
-  <p style="color:#888;font-size:13px">
-    Plan: {lic.plan} · 1 dispositivo<br>
-    Cambiaste de PC? Responde este email y lo resolvemos.<br>
-    Soporte: victor.marquina30@gmail.com
+
+  <div style="background:#1a1c1b;border-radius:10px;padding:16px;margin:16px 0;text-align:center">
+    <div style="font-size:11px;color:#8b928e;margin-bottom:8px">PRODUCT KEY</div>
+    <code style="font-size:22px;letter-spacing:3px;color:#aacfbf;font-weight:bold">{new_key}</code>
+  </div>
+
+  <p style="color:#8b928e;font-size:13px">
+    Copia esta key y enviasela al cliente por email.<br>
+    Plan: {lic.plan} · ID licencia: #{license_id}
   </p>
 </div>"""
             })

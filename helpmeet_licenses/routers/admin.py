@@ -112,7 +112,9 @@ def _send_gmail(to_email: str, subject: str, html: str) -> None:
     msg["From"] = f"Helpmeet <{settings.gmail_user}>"
     msg["To"] = to_email
     msg.attach(MIMEText(html, "html", "utf-8"))
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.ehlo()
+        server.starttls()
         server.login(settings.gmail_user, settings.gmail_app_password)
         server.sendmail(settings.gmail_user, to_email, msg.as_string())
 

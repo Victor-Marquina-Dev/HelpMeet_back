@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic_settings import BaseSettings
 
 
@@ -5,6 +6,7 @@ class Settings(BaseSettings):
     database_url: str
     jwt_secret: str
     admin_api_key: str
+    resend_api_key: Optional[str] = None
 
     model_config = {"env_file": ".env"}
 

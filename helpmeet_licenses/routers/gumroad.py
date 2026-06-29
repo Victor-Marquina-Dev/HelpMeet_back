@@ -31,6 +31,43 @@ from helpmeet_licenses.keys import generate_license_key
 from helpmeet_licenses.models import Customer, License, LicenseEvent
 from helpmeet_licenses.schemas import OkResponse
 
+
+def _send_license_email(to_email: str, license_key: str, plan: str) -> None:
+    """Envía la Product Key al comprador via Resend."""
+    if not settings.resend_api_key:
+        return
+    try:
+        import resend
+        resend.api_key = settings.resend_api_key
+        resend.Emails.send({
+            "from": "Helpmeet <onboarding@resend.dev>",
+            "to": to_email,
+            "subject": "Tu Product Key de Helpmeet",
+            "html": f"""
+<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+  <h2 style="color:#aacfbf">¡Gracias por comprar Helpmeet!</h2>
+  <p>Aquí está tu Product Key personal:</p>
+  <div style="background:#1e201f;border-radius:8px;padding:20px;text-align:center;margin:24px 0">
+    <code style="font-size:20px;letter-spacing:2px;color:#aacfbf;font-weight:bold">{license_key}</code>
+  </div>
+  <p><strong>Cómo activar:</strong></p>
+  <ol>
+    <li>Descarga e instala Helpmeet</li>
+    <li>Abre la aplicación</li>
+    <li>Introduce tu Product Key cuando se solicite</li>
+    <li>¡Listo!</li>
+  </ol>
+  <p style="color:#888;font-size:13px">
+    Plan: {plan} · 1 dispositivo<br>
+    ¿Cambiaste de PC? Responde este email y lo resolvemos.<br>
+    Soporte: victor.marquina30@gmail.com
+  </p>
+</div>
+"""
+        })
+    except Exception:
+        pass  # El email falla silenciosamente — la licencia ya está creada
+
 router = APIRouter(prefix="/api/gumroad", tags=["gumroad"])
 
 PLAN_MAP = {
@@ -134,5 +171,8 @@ async def gumroad_webhook(
         )
     )
     db.commit()
+
+    # Enviar la key al comprador por email
+    _send_license_email(email, key, plan)
 
     return OkResponse(ok=True)

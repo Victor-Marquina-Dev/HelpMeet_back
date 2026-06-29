@@ -18,10 +18,11 @@ En producción, se puede añadir validación de IP de Gumroad como capa extra.
 """
 from datetime import datetime, timezone
 
+from html import escape
 import hmac
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, Query, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from helpmeet_licenses.auth import hash_key
@@ -41,6 +42,9 @@ def _notify_admin(buyer_email: str, license_key: str, plan: str) -> None:
         return
     try:
         import resend
+        buyer_email = escape(buyer_email)
+        license_key = escape(license_key)
+        plan = escape(plan)
         resend.api_key = settings.resend_api_key
         resend.Emails.send({
             "from": "Helpmeet Admin <onboarding@resend.dev>",
@@ -78,6 +82,8 @@ def _send_license_email(to_email: str, license_key: str, plan: str) -> None:
         return
     try:
         import resend
+        license_key = escape(license_key)
+        plan = escape(plan)
         resend.api_key = settings.resend_api_key
         resend.Emails.send({
             "from": "Helpmeet <onboarding@resend.dev>",
@@ -117,8 +123,12 @@ PLAN_MAP = {
 }
 
 
-def _require_token(token: str = Query(..., alias="token")):
-    if not hmac.compare_digest(token, settings.admin_api_key):
+def _require_token(
+    token: Optional[str] = Query(default=None, alias="token"),
+    x_admin_key: Optional[str] = Header(default=None),
+):
+    provided = token or x_admin_key or ""
+    if not provided or not hmac.compare_digest(provided, settings.admin_api_key):
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
@@ -155,8 +165,11 @@ async def gumroad_webhook(
     refunded = str(data.get("refunded", "false")).lower() in ("true", "1")
     dispute = str(data.get("disputed", data.get("dispute", "false"))).lower() in ("true", "1")
 
-    if not email or not sale_id:
+    if not isinstance(email, str) or not isinstance(sale_id, str) or not email or not sale_id:
         return OkResponse(ok=False, error="missing_fields")
+    email = email.strip().lower()[:255]
+    sale_id = sale_id.strip()[:255]
+    product_id = str(product_id).strip()[:255]
 
     existing_event = _find_purchase_event(db, sale_id)
 

@@ -87,11 +87,14 @@ def validate(req: ValidateRequest, db: Session = Depends(get_db)):
     if "license_id" not in payload:
         return ValidateResponse(ok=False, error="invalid_token")
 
+    device_hash = hash_key(req.device_id)
+    if device_hash != payload.get("device_id_hash"):
+        return ValidateResponse(ok=False, error="device_mismatch")
+
     lic = db.get(License, payload["license_id"])
     if not lic or lic.status != "active":
         return ValidateResponse(ok=False, error="license_revoked")
 
-    device_hash = hash_key(req.device_id)
     activation = db.query(Activation).filter(
         Activation.license_id == lic.id,
         Activation.device_id_hash == device_hash,

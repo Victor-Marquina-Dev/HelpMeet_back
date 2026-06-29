@@ -1,6 +1,7 @@
 import typer
 from datetime import date, datetime, timezone
 from typing import Optional
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from helpmeet_licenses.database import SessionLocal
 from helpmeet_licenses.keys import generate_license_key
@@ -8,6 +9,9 @@ from helpmeet_licenses.models import Customer, License, LicenseEvent
 from helpmeet_licenses.auth import hash_key
 
 app = typer.Typer(help="Gestión de licencias Helpmeet")
+
+VALID_PLANS = {"personal", "pro", "team"}
+
 
 def _db() -> Session:
     return SessionLocal()
@@ -18,11 +22,20 @@ def create_customer(
     name: Optional[str] = typer.Option(None, help="Nombre"),
 ):
     """Crea un nuevo cliente."""
+    email = email.strip().lower()
+    name = name.strip() if name else None
     db = _db()
     try:
         customer = Customer(email=email, name=name)
         db.add(customer)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            customer = db.query(Customer).filter(Customer.email == email).first()
+            if not customer:
+                typer.echo("No se pudo crear el cliente.", err=True)
+                raise typer.Exit(1)
         db.refresh(customer)
         typer.echo(f"Creado: ID={customer.id} email={customer.email}")
     finally:
@@ -35,6 +48,10 @@ def create_license(
     updates_until: Optional[str] = typer.Option(None, help="Fecha YYYY-MM-DD"),
 ):
     """Crea una licencia y muestra la product key (solo una vez)."""
+    plan = plan.strip().lower()
+    if plan not in VALID_PLANS:
+        typer.echo("Plan invalido. Usa: personal, pro o team.", err=True)
+        raise typer.Exit(1)
     if updates_until:
         try:
             until = date.fromisoformat(updates_until)

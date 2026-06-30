@@ -2,6 +2,7 @@ import hmac
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from helpmeet_licenses.config import settings
 from helpmeet_licenses.database import get_db
@@ -30,7 +31,14 @@ def create_customer(req: CreateCustomerRequest, db: Session = Depends(get_db),
                     _=Depends(_require_admin)):
     customer = Customer(email=req.email, name=req.name)
     db.add(customer)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.query(Customer).filter(Customer.email == req.email).first()
+        if existing:
+            return existing
+        raise HTTPException(status_code=409, detail="Email already exists")
     db.refresh(customer)
     return customer
 

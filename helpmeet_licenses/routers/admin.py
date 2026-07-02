@@ -49,8 +49,11 @@ def list_customers(db: Session = Depends(get_db), _=Depends(_require_admin)):
 @router.post("/licenses", response_model=CreateLicenseResponse)
 def create_license(req: CreateLicenseRequest, db: Session = Depends(get_db),
                    _=Depends(_require_admin)):
+    key = generate_license_key()
     lic = License(
         customer_id=req.customer_id,
+        key_hash=hash_key(key),
+        key_last4=key[-4:],
         plan=req.plan,
         updates_until=req.updates_until,
         max_devices=req.max_devices,
@@ -60,7 +63,23 @@ def create_license(req: CreateLicenseRequest, db: Session = Depends(get_db),
     _log_event(db, lic.id, "created")
     db.commit()
     db.refresh(lic)
-    return CreateLicenseResponse(id=lic.id, plan=lic.plan)
+
+    # Enviar la key por email (Resend) en el mismo paso y con la MISMA key que
+    # devolvemos al panel: así la key que ve el admin coincide con la del email.
+    # (El reenvío posterior con "Enviar key" regenera, porque solo guardamos el hash.)
+    email_sent = False
+    if lic.customer and lic.customer.email:
+        import threading
+        threading.Thread(
+            target=_notify_key_via_resend,
+            args=(lic.customer.email, key, lic.plan, lic.id),
+            daemon=True,
+        ).start()
+        email_sent = bool(settings.resend_api_key)
+
+    return CreateLicenseResponse(
+        id=lic.id, license_key=key, key_last4=key[-4:], plan=lic.plan, email_sent=email_sent
+    )
 
 @router.get("/licenses", response_model=list[LicenseOut])
 def list_licenses(plan: Optional[str] = None, status: Optional[str] = None,

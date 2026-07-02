@@ -113,9 +113,10 @@ class ActivationOut(BaseModel):
 
 class CreateLicenseResponse(BaseModel):
     id: int
-    license_key: Optional[str] = None
-    key_last4: Optional[str] = None
+    license_key: str
+    key_last4: str
     plan: str
+    email_sent: bool = False
 
 
 class LicenseOut(BaseModel):

@@ -49,11 +49,8 @@ def list_customers(db: Session = Depends(get_db), _=Depends(_require_admin)):
 @router.post("/licenses", response_model=CreateLicenseResponse)
 def create_license(req: CreateLicenseRequest, db: Session = Depends(get_db),
                    _=Depends(_require_admin)):
-    key = generate_license_key()
     lic = License(
         customer_id=req.customer_id,
-        key_hash=hash_key(key),
-        key_last4=key[-4:],
         plan=req.plan,
         updates_until=req.updates_until,
         max_devices=req.max_devices,
@@ -63,7 +60,7 @@ def create_license(req: CreateLicenseRequest, db: Session = Depends(get_db),
     _log_event(db, lic.id, "created")
     db.commit()
     db.refresh(lic)
-    return CreateLicenseResponse(id=lic.id, license_key=key, key_last4=key[-4:], plan=lic.plan)
+    return CreateLicenseResponse(id=lic.id, plan=lic.plan)
 
 @router.get("/licenses", response_model=list[LicenseOut])
 def list_licenses(plan: Optional[str] = None, status: Optional[str] = None,

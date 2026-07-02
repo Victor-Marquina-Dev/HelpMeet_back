@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     jwt_secret: str
     admin_api_key: str
     resend_api_key: Optional[str] = None
+    cors_origins: str = "*"
     gmail_user: Optional[str] = None          # tu Gmail: victor.marquina30@gmail.com
     gmail_app_password: Optional[str] = None  # contraseña de aplicación de Google
 
